@@ -1,0 +1,31 @@
+{
+	"name": "coldmind-pinecone-client",
+	"version": "0.5.3",
+	"description": "A Fully featured Pinecone Client built upon the Graphmin framework",
+	"scripts": {
+		"start:dev": "ts-node --project tsconfig.json -r tsconfig-paths/register ./src/cm.pinecone.app.ts",
+		"task:test": "mocha --recursive ./test/**/*_test**.ts",
+		"task:build": "tsc",
+		"build": "npm run task:test && <your build command here>"
+	},
+	"main": "index.js",
+	"author": {
+		"name": "Patrik Forsberg",
+		"email": "patrik.forsberg@coldmind.com"
+	},
+	"license": "MPL2.0",
+	"dependencies": {
+		"axios": "^1.4.0",
+		"chai": "^4.3.7",
+		"fs-extra": "^11.1.1",
+		"mocha": "^10.2.0",
+		"typescript": "^5.1.6"
+	},
+	"devDependencies": {
+		"@types/axios": "^0.14.0",
+		"@types/chai": "^4.3.5",
+		"@types/mocha": "^10.0.1",
+		"@types/node": "^20.3.2",
+		"tsconfig-paths": "^4.2.0"
+	}
+}

@@ -1,0 +1,38 @@
+{
+	"compilerOptions": {
+		"target":                           "es2022",
+		"module":                           "commonjs",
+		"rootDir":                          "./src",
+		"baseUrl":                          "./src",
+		"outDir":                           "./dist",
+		"sourceRoot":                       "./src",
+		"typeRoots":                        [
+			"./node_modules/@types",
+			"./node_modules/langchain/",
+			"./src/types"
+		],
+		"esModuleInterop":                  true,
+		"forceConsistentCasingInFileNames": true,
+		"strict":                           false,
+		"skipLibCheck":                     true,
+		"paths":                            {
+
+			"@decorators/*": [
+				"./decorators/*"
+			],
+			"@core/*":       [
+				"./core/*"
+			],
+			"@utils/*":  [
+				"./utils/*"
+			]
+		}
+	},
+	"include":         [
+		"src/**/*"
+	],
+	"exclude":         [
+		"node_modules",
+		"dist"
+	]
+}
