@@ -26,8 +26,10 @@
  *  or the use or other dealings in the software.
  */
 
-import { ICmCliParam }      from "@decorators/@cm.scriptlet";
-import { CmScriptlet }      from "@decorators/@cm.scriptlet";
+import { CmScriptlet }      from "@lib/coldmind";
+import { IEnvVarMap }       from "@lib/coldmind/types/env-file.type";
+import { PineconeEnvKeys }  from "./app.settings";
+import { Settings }         from "./app.settings";
 import { CmPineconeClient } from "./cm.pinecone.client";
 
 @CmScriptlet(
@@ -39,6 +41,7 @@ import { CmPineconeClient } from "./cm.pinecone.client";
 			enabled   : true,
 			ctorParams: []
 		},
+		envVars: Object.values(PineconeEnvKeys),
 		cliParams  : {
 			params: [
 				{
@@ -54,16 +57,37 @@ export class CmPineconeApp {
 	client?: CmPineconeClient = undefined;
 
 	constructor() {
-		console.log("Hello Hey");
-		this.client = new CmPineconeClient();
-		this.client.refreshIndexList()
+		/*
+		console.log("Hello Hey ::", this.instId);
+		this.client = new CmPineconeClient(
+			{
+				apiKey     : Settings.API_KEY,
+				environment: Settings.ENVIRONMENT,
+			});
+
+		console.log("GOGOGO ::: API_KEY ::", Settings.API_KEY);
+		console.log("GOGOGO ::: ENVIRONMENT ::", Settings.ENVIRONMENT);
+		*/
 	}
 
-	onInit(cliParams?: ICmCliParam[]) {
-		console.log("onInit :: cliParams ::", cliParams);
+	async onInit(initArgs:  { envVars?: IEnvVarMap }) {
+		const env = initArgs.envVars;
+		const cliSettings = {
+			apiKey     : "959b544c-d5a8-482d-a624-d3ed42952e06",//initArgs.envVars.get(PineconeEnvKeys.ApiKey),
+			environment: "us-west4-gcp-free" // initArgs.envVars.get(PineconeEnvKeys.Environment)
+		};
+
+		console.log("onInit >>>>> cliSettings ::", cliSettings);
+		console.log("onInit >>>>> onInit ::", initArgs);
+
+		this.client = new CmPineconeClient(cliSettings);
+
+		console.log("onInit ::: API_KEY ::", Settings.API_KEY);
+		console.log("onInit ::: ENVIRONMENT ::", Settings.ENVIRONMENT);
+
+		await this.client.refreshIndexList();
 	}
 
-	async run(): Promise<void> {}
+	async run(): Promise<void> {
+	}
 }
-
-

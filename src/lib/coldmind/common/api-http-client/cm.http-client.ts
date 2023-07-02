@@ -1,0 +1,211 @@
+/**
+ *  Coldmind - Pinecone API Client
+ *
+ *  This file is part of the Coldmind - Pinecone API Client project, an
+ *  integration solution for the Pinecone database.
+ *  @repository https://github.com/coldmind-dev/coldmind.pinecone-api.git
+ *
+ *  @author Patrik Forsberg
+ *  @contact patrik.forsberg@coldmind.com
+ *  @date 2023-06-29
+ *
+ *  Copyright (c) 2023 Coldmind AB
+ *
+ *  This Source Code Form is subject to the terms of the Mozilla Public
+ *  License, v. 2.0. If a copy of the MPL was not distributed with this
+ *  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ *  The above copyright notice and this permission notice shall be
+ *  included in all copies or substantial portions of the Software.
+ *
+ *  The software is provided "as is", without warranty of any kind, express or implied,
+ *  including but not limited to the warranties of merchantability, fitness for a
+ *  particular purpose and noninfringement. In no event shall the authors or copyright
+ *  holders be liable for any claim, damages or other liability, whether in an action of
+ *  contract, tort or otherwise, arising from, out of or in connection with the software
+ *  or the use or other dealings in the software.
+ */
+
+import axios, { AxiosInstance }  from "axios";
+import { AxiosRequestConfig }    from "axios";
+import { AxiosResponse }         from "axios";
+import { CmHttpResponse }        from "..";
+import { ICmHttpResponse }       from "..";
+import { CmError }               from "..";
+import { ICmHttpHeader }         from "..";
+import { ICmHttpClientSettings } from "..";
+import { ICmApiRequestConfig }   from "..";
+import { ICmHttpClient }         from "..";
+
+/**
+ * CmRestApiClient - General-purpose REST API Client
+ *
+ * This API client provides a convenient interface for making HTTP requests to a RESTful API.
+ * It supports common HTTP methods such as GET, POST, and DELETE, and allows customization of
+ * request headers and base URL. The client is built on top of Axios.
+ */
+export class CmHttpClient implements ICmHttpClient {
+	private _config: ICmApiRequestConfig;
+	private client: AxiosInstance;
+
+	/**
+	 * Creates an instance of CmRestApiClient.
+	 */
+	constructor(settings: ICmHttpClientSettings) {
+		const defaultHeaders: ICmHttpHeader = {
+			...settings.header,
+		}
+
+		if (settings.restJson) {
+			defaultHeaders[ "Content-Type" ] = "application/json";
+		}
+
+		const clientConfig: ICmApiRequestConfig = {
+			baseURL: settings.baseURL,
+			timeout: settings.timeout ?? 60000 * 30,
+			headers: defaultHeaders,
+		};
+
+		this.client = axios.create(clientConfig);
+	}
+
+	/**
+	 * Creates a new instance of CmRestApiClient.
+	 * @returns {this}
+	 * @param settings
+	 */
+	static createHttpClient(settings: ICmHttpClientSettings): CmHttpClient {
+		return new this(settings);
+	}
+
+	/**
+	 * Sets custom headers to be added to the existing headers.
+	 * @param customHeaders - Custom headers to be merged with the existing headers.
+	 */
+	public setCustomHeaders(customHeaders: Record<string, string>): void {
+		this.client.defaults.headers = {
+			...this.client.defaults.headers,
+			...customHeaders,
+		}
+	}
+
+	/**
+	 * Parses the response and returns an object containing the response
+	 * status and data.
+	 *
+	 * @param {AxiosResponse} response
+	 * @returns {Promise<IHttpApiResponse<T>>}
+	 * @private
+	 */
+	private async parseResult<DataType = any, T extends ICmHttpResponse<DataType> = ICmHttpResponse<DataType>>(response: AxiosResponse): Promise<T> {
+		const result: ICmHttpResponse<DataType> = {
+			success   : false,
+			status    : response.status,
+			statusText: response.statusText,
+
+		};
+
+		try {
+			if (!result.success) {
+				result.error = CmError.create(response.status, response.statusText);
+			} else {
+				response.headers.forEach((value, key) => {
+					result.headers[ key ] = value;
+				});
+
+				result.data = response.data as T;
+			}
+
+		} catch (error) {
+			throw new Error(`Failed to parse HTTP response: ${ error.message }`);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Sends a POST request to the specified path with the given data.
+	 */
+	public async httpPost<TRespData = any>(path: string, data: any): Promise<TRespData> {
+		try {
+			const response = await this.client.post(path, data);
+			return response.data as TRespData;
+		}
+		catch (error) {
+			throw new Error(`POST request to ${ path } failed: ${ error.message }`);
+		}
+	}
+
+	/**
+	 * Sends a GET request to the specified path with optional query parameters.
+	 */
+	public async httpGet<TRespData = any>(path: string, params?: any): Promise<TRespData> {
+		try {
+			//const response = await this.client.get(path, { params });
+			//return response.data as TRespData;
+			this.request<TRespData>(
+				"GET",
+				path,
+			);
+
+		}
+		catch (error) {
+			throw new Error(`GET request to ${ path } failed: ${ error.message }`);
+		}
+	}
+
+	/**
+	 * Sends a DELETE request to the specified path with optional query parameters.
+	 */
+	public async httpDelete<TRespData = any>(path: string, params?: any): Promise<TRespData> {
+		try {
+			const response = await this.client.delete(path, { params });
+			return response.data as TRespData;
+		}
+		catch (error) {
+			throw new Error(`DELETE request to ${ path } failed: ${ error.message }`);
+		}
+	}
+
+	/**
+	 * Sends a PATCH request to the specified path with optional query parameters.
+	 */
+	public async httpPatch<TRespData = any>(path: string, params?: any): Promise<TRespData> {
+		try {
+			const response = await this.client.patch(path, { params });
+			return response.data as TRespData;
+		}
+		catch (error) {
+			throw new Error(`PATCH request to ${ path } failed: ${ error.message }`);
+		}
+	}
+
+	/**
+	 * Sends a request to the specified path using the given HTTP method and optional data.
+	 */
+	public async request<TRespData = any>(
+		method: string,
+		path: string,
+		data?: any,
+		params?: any
+	): Promise<TRespData> {
+		try {
+			const config: AxiosRequestConfig = {
+				headers: {
+					...this._config.headers,
+				},
+				method,
+				url: path,
+				data,
+				params,
+			};
+			const response: AxiosResponse    = await this.client.request(config);
+			this.parseResult(response);
+
+			return response.data as TRespData;
+		}
+		catch (error) {
+			throw new Error(`Request (${ method }) to ${ path } failed: ${ error.message }`);
+		}
+	}
+}

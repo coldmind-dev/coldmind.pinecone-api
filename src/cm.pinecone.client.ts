@@ -26,86 +26,124 @@
  *  or the use or other dealings in the software.
  */
 
-import assert                from "node:assert";
-import { IVectorOperation }  from "./api";
-import { CmPineconeApi }     from "./api/cm-pinecone.api";
-import { IApiSettings }      from "./api/cm.pinecone-api-settings.type";
-import { VectorOperation }   from "./api/cm.pinecone-vector-operation";
-import { CmError }           from "./core/cm.error";
-import { PineconeErrorCode } from "./core/cm.pinecone.error.type";
-import { Settings }          from "./environment";
-import { PineconeMetric }    from "./types/cm.pinecone-metric.type";
-import { EventEmitter } from 'events';
+import { IPineconeApiSettings } from "@api/api-settings.interface";
+import { HttpApiOperationOld } from "@api/http-api-operation-old";
+import { HttpApiOperation }    from "@api/http-api-operation";
+import { ICmAction }           from "@lib/coldmind/common/action/cm.action.intf";
+import { CmError }              from "@lib/coldmind/common/cm.error";
+import { ErrorCode }            from "@core/error-codes.enum";
+import { MetricEnum }           from "@dataTypes/metric.enum";
+import { CmEventEmitter }       from "@lib/coldmind/common/events";
+import assert                   from "node:assert";
+import { IndexApiOperation }    from "./package/api";
+import { VectorApiOperation }   from "./package/api";
+import { IVectorOperation }     from "./package/api";
 
-enum ClientEvents {
-	IndexUpdate = 'indexUpdate',
+/**
+ * Represents the type of events that can be emitted by the client.
+ */
+export enum ClientEventsType {
+	IndexChange,
+	IndexUpdate,
+	IndexSelected,
+	InitResult
 }
 
-export class PineconeIndex extends VectorOperation {
-	constructor(apiClient: CmPineconeApi, indexName: string) {
-		super(apiClient, indexName);
-	}
-}
+export type TVectorApiAction = Promise<ICmAction<IVectorOperation>>;
 
 /**
  * Represents a Pinecone engine client.
  */
-export class CmPineconeClient {
-	private api: CmPineconeApi;
-	private selectedIndex: PineconeIndex | undefined = undefined;
-	private indices: { [name: string]: VectorOperation };
+export class CmPineconeClient extends CmEventEmitter<ClientEventsType> {
+	private _httpApi: HttpApiOperation;
+	private _indexOperation: IndexApiOperation;
+	private _vectorOperation: VectorApiOperation;
+	private _selectedIndex: string | undefined = undefined;
+	private indices: Map<string, VectorApiOperation>;
+
+	get httpApi(): HttpApiOperation {
+		console.log("httpApi ::", this.settings);
+		this._httpApi = this._httpApi ?? new HttpApiOperation(this.settings);
+		return this._httpApi;
+	}
+
+	get indexOperation(): IndexApiOperation {
+		return this._indexOperation ?? new IndexApiOperation(this.httpApi);
+	}
+
+	get vectorOperation(): VectorApiOperation {
+		return this._vectorOperation ?? new VectorApiOperation(this.httpApi);
+	}
 
 	/**
 	 * Creates an instance of CmPineconeClient.
 	 * @param settings
 	 */
 	constructor(
-		public readonly settings?: IApiSettings
+		public settings: IPineconeApiSettings,
 	) {
-		assert(Settings.API_KEY, "API key must be specified");
-		assert(Settings.ENVIRONMENT, "Environment key must be specified");
+		super();
 
-		this.settings = settings ?? {
-			baseURL: `https://api.controller.${Settings.ENVIRONMENT}.pinecone.io`,
-			apiKey: Settings.API_KEY,
-		}
+		assert(settings, "Settings must be provided");
+		assert(settings?.apiKey, "API key must be specified");
+		assert(settings?.environment, "Environment key must be specified");
 
-		this.indices = {};
+		/**
+		 * Initializes the client asynchronously.
+		 */
+		process.nextTick(() => {
+			this.init(this.settings).then(() => {
+				this.emit(ClientEventsType.InitResult);
+			}).catch((err) => {
+				this.emit(ClientEventsType.InitResult, err);
+			});
+		});
 	}
 
 	/**
 	 * Initializes the client.
-	 * @param {ICmPineconeApiSettings} settings
+	 * @param {IPineconeApiSettings} settings
 	 * @returns {Promise<void>}
 	 */
-	public async init(settings?: IApiSettings): Promise<void> {
-		settings = settings ?? {
-			baseURL: `https://api.controller.${Settings.ENVIRONMENT}.pinecone.io`,
-			apiKey: Settings.API_KEY,
-		}
+	public async init(settings?: IPineconeApiSettings): Promise<void> {
+		this.settings.header = settings.header ?? {
+			"Content-Type": "application/json",
+			"Api-Key"     : this.settings.apiKey,
+		};
 
-		this.api = new CmPineconeApi(settings);
+		this.settings.baseURL = this.settings?.baseURL ??
+								`https://controller.${ this.settings.environment }.pinecone.io`;
+
+		this.indices = new Map<string, VectorApiOperation>();
 	}
-
 
 	/**
 	 * Gets or creates an index with the specified indexName.
 	 * @param indexName - The indexName of the index.
+	 * @param force
+	 * @param optimistic
 	 * @returns The Pinecone index.
 	 */
-	public getIndex(indexName: string): VectorOperation {
-		if (!this.indices[indexName]) {
-			this.indices[indexName] = new VectorOperation(this.api, indexName);
+	public async getIndex(
+		indexName: string,
+		force?: boolean,
+		optimistic?: boolean
+	): TVectorApiAction {
+
+
+		if ( !this.indices[ indexName ]) {
+			this.indices[ indexName ] = new VectorApiOperation(this.httpApi, indexName);
 		}
-		return this.indices[indexName];
+
+		return this.indices[ indexName ];
 	}
 
 	/**
 	 * Retrieves a list of existing indexes.
 	 * @returns A Promise that resolves to an array of index names.
 	 */
-	public async refreshIndexList(): Promise<string[]> {
-		const indexList = await this.api.listIndexes();
+	public async refreshIndexList(): Promise<void> {
+		const indexList = await this.httpApi.listIndexes();
 		console.log('indexList ::', indexList);
 	}
 
@@ -126,22 +164,23 @@ export class CmPineconeClient {
 		indexName: string,
 		createIfNotExists?: boolean,
 		dimensions?: number,
-		metric?: PineconeMetric
+		metric?: MetricEnum,
 	): Promise<IVectorOperation> {
 		dimensions = dimensions || this.settings.defDimensions;
 
-		if (!indexName) {
-			throw new CmError(PineconeErrorCode.IndexNameMissing, "Index indexName is missing");
+		if ( !indexName) {
+			throw new CmError(ErrorCode.IndexNameMissing, "Index indexName is missing");
 		}
 
 		const indexExists = await this.indexExists(indexName);
 
 		if (createIfNotExists) {
-			if (!indexExists) {
+			if ( !indexExists) {
 				await this.createIndex(indexName, dimensions, metric);
 			}
-		} else if (!indexExists) {
-			throw new CmError(PineconeErrorCode.IndexNotFound, `Index "${indexName}" does not exist`);
+		}
+		else if ( !indexExists) {
+			throw new CmError(ErrorCode.IndexNotFound, `Index "${ indexName }" does not exist`);
 		}
 
 		return this.getIndex(indexName);
@@ -156,8 +195,8 @@ export class CmPineconeClient {
 	 * @throws CmError with CmErrorCode.IndexCreationDataMissing if dimensions or metric are missing.
 	 * @throws CmError with CmErrorCode.IndexCreationFailed if the index creation process fails.
 	 */
-	private async createIndex(name: string, dimensions: number, metric?: PineconeMetric): Promise<void> {
-		await this.api.createIndex(name, dimensions, metric);
+	private async createIndex(name: string, dimensions: number, metric?: MetricEnum): Promise<void> {
+		await this.httpApi.createIndex(name, dimensions, metric);
 		await this.waitUntilIndexIsReady(name);
 	}
 
@@ -168,13 +207,14 @@ export class CmPineconeClient {
 	 * @throws CmError with CmErrorCode.IndexCreationFailed if the index creation process fails.
 	 */
 	private async waitUntilIndexIsReady(name: string): Promise<void> {
-		const response = await this.api.getIndexDescription(name);
+		const response = await this.httpApi.getIndexDescription(name);
 		const status = response.status;
 
 		if (status === "READY") {
 			return;
-		} else if (status === "FAILED") {
-			throw new CmError(PineconeErrorCode.IndexCreationFailed, `Index "${name}" creation failed`);
+		}
+		else if (status === "FAILED") {
+			throw new CmError(ErrorCode.IndexCreationFailed, `Index "${ name }" creation failed`);
 		}
 
 		await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -188,9 +228,10 @@ export class CmPineconeClient {
 	 */
 	private async indexExists(name: string): Promise<boolean> {
 		try {
-			await this.api.getIndexDescription(name);
+			await this.httpApi.getIndexDescription(name);
 			return true;
-		} catch (error) {
+		}
+		catch (error) {
 			if (error.response && error.response.status === 404) {
 				return false;
 			}
@@ -198,6 +239,3 @@ export class CmPineconeClient {
 		}
 	}
 }
-
-const pinecone = new CmPineconeClient();
-
